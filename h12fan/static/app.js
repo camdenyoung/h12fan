@@ -19,7 +19,7 @@ async function api(path, data) {
 function markDirty() { dirty = true; $('dirty').hidden = false; }
 function renderEditors() {
   const names = [...new Set([...state.sensors.filter(s => s.unit.toLowerCase() === 'degrees c').map(s => s.name), ...draft.zones.flatMap(z => z.sensors)])];
-  $('zones').innerHTML = draft.zones.map(z => `<article class="zone"><div class="zone-head"><div><h3>${esc(z.name)}</h3><small>IPMI zone ${z.id} · hottest selected sensor</small></div><div class="zone-status"><strong id="zone-bmc-${z.id}">BMC duty: —</strong><span class="badge" id="zone-live-${z.id}">MONITORING</span></div></div><div class="zone-content"><div class="zone-controls"><label>Reference temperature sensors<select multiple aria-label="Zone ${z.id+1} reference sensors" data-zone="${z.id}" data-field="sensors">${names.map(n=>`<option ${z.sensors.includes(n)?'selected':''} value="${esc(n)}">${esc(n)}</option>`).join('')}</select></label><label>Critical override (°C)<input type="number" min="20" max="110" data-zone="${z.id}" data-field="critical" value="${z.critical}"></label></div><p class="help">Select one sensor, or hold Ctrl / Command to select several. Critical temperature requests 100% duty.</p><div id="graph-${z.id}"></div><div class="graph-key"><span>— Preview curve</span><span>┄ Cooling hysteresis</span><span>● Live BMC state</span></div><table class="curve-table"><thead><tr><th>From temperature (°C)</th><th>Duty (%)</th><th></th></tr></thead><tbody id="points-${z.id}"></tbody></table><button data-add="${z.id}">Add temperature step</button><p class="help">The first duty also applies below the first step. Preview changes take effect after Apply.</p></div></article>`).join('');
+  $('zones').innerHTML = draft.zones.map(z => `<article class="zone"><div class="zone-head"><div><h3>${esc(z.name)}</h3><small>IPMI zone ${z.id} · hottest selected sensor</small></div><div class="zone-status"><strong id="zone-bmc-${z.id}">Live duty: —</strong><span class="badge" id="zone-live-${z.id}">MONITORING</span></div></div><div class="zone-content"><div class="zone-controls"><label>Reference temperature sensors<select multiple aria-label="Zone ${z.id+1} reference sensors" data-zone="${z.id}" data-field="sensors">${names.map(n=>`<option ${z.sensors.includes(n)?'selected':''} value="${esc(n)}">${esc(n)}</option>`).join('')}</select></label><label>Critical override (°C)<input type="number" min="20" max="110" data-zone="${z.id}" data-field="critical" value="${z.critical}"></label></div><p class="help">Select one sensor, or hold Ctrl / Command to select several. Critical temperature requests 100% duty.</p><div id="graph-${z.id}"></div><div class="graph-key"><span>— Preview curve</span><span>┄ Cooling hysteresis</span><span>● Live BMC state</span></div><table class="curve-table"><thead><tr><th>From temperature (°C)</th><th>Duty (%)</th><th></th></tr></thead><tbody id="points-${z.id}"></tbody></table><button data-add="${z.id}">Add temperature step</button><p class="help">The first duty also applies below the first step. Preview changes take effect after Apply.</p></div></article>`).join('');
   for (const z of draft.zones) renderPoints(z.id);
   for (const key of ['poll_seconds','threshold_check_seconds','startup_seconds','hysteresis']) $(key).value = draft[key];
   $('enabled').checked = draft.enabled;
@@ -80,8 +80,8 @@ function telemetry() {
     const live=state.zones.find(v=>v.id===z.id);
     const reported=state.bmc_duties?.find(v=>v.id===z.id);
     const dutyLabel=$(`zone-bmc-${z.id}`);
-    dutyLabel.textContent=reported?.duty!=null?`BMC duty: ${reported.duty}%`:'BMC duty: —';
-    dutyLabel.title=reported?.error || (reported?.updated_at ? `Read from BMC at ${new Date(reported.updated_at*1000).toLocaleTimeString()}` : 'No current BMC duty reading');
+    dutyLabel.textContent=reported?.duty!=null?`Live duty: ${reported.duty}%`:'Live duty: —';
+    dutyLabel.title=reported?.error || (reported?.updated_at ? `Read from BMC at ${new Date(reported.updated_at*1000).toLocaleTimeString()}` : 'No current live duty reading');
     $(`zone-live-${z.id}`).textContent=live?`${fmt(live.temperature)}°C · target ${live.requested}%${live.critical?' · CRITICAL':''}`:'MONITORING / PAUSED';
     graph(z.id);
   }
@@ -154,5 +154,5 @@ document.addEventListener('click', async e=>{
   finally {button.disabled=false;}
 });
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
-async function poll() { if(polling)return;polling=true;try{await refresh();}catch(err){message(`Dashboard disconnected: ${err.message}. Displayed readings may be stale.`,true);$('connection').textContent='Dashboard disconnected';$('sensor-status').textContent='STALE';$('sensors').classList.add('stale'); document.querySelectorAll('[id^="zone-bmc-"]').forEach(el=>{el.textContent='BMC duty: — (disconnected)';});}finally{polling=false;} }
+async function poll() { if(polling)return;polling=true;try{await refresh();}catch(err){message(`Dashboard disconnected: ${err.message}. Displayed readings may be stale.`,true);$('connection').textContent='Dashboard disconnected';$('sensor-status').textContent='STALE';$('sensors').classList.add('stale'); document.querySelectorAll('[id^="zone-bmc-"]').forEach(el=>{el.textContent='Live duty: — (disconnected)';});}finally{polling=false;} }
 poll();setInterval(poll,3000);
