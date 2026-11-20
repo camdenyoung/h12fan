@@ -40,7 +40,12 @@ class Controller:
         self.config = store.load()
         self.lock = threading.RLock()
         self.stop = threading.Event()
-        self.events = deque(maxlen=100)
+        try:
+            history = store.load_events()
+        except (OSError, ValueError):
+            history = [{'time': time.time(), 'message': 'Saved activity history could not be read; continuing with a new history', 'level': 'error'}]
+        self.events = deque(history, maxlen=100)
+        self._history_write_failed = False
         self.owned = False
         self.on_since = None
         self.last_threshold = None
@@ -53,6 +58,14 @@ class Controller:
     def event(self, message, level='info', *, deduplicate=True):
         if not deduplicate or not self.events or self.events[0]['message'] != message:
             self.events.appendleft({'time': time.time(), 'message': message, 'level': level})
+            try:
+                self.store.save_events(self.events)
+                self._history_write_failed = False
+            except (OSError, ValueError):
+                # A full/unwritable volume must not stop cooling or misreport a duty write.
+                if not self._history_write_failed:
+                    self.events.appendleft({'time': time.time(), 'message': 'Activity history could not be saved; keeping events in memory until storage recovers', 'level': 'error'})
+                self._history_write_failed = True
 
     def change_duty(self, zone, duty, reason, *, actual=None, force=False):
         if actual is None:

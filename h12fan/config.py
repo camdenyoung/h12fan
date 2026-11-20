@@ -108,14 +108,34 @@ class Store:
         return validate(json.loads(self.path.read_text())) if self.path.exists() else defaults()
 
     def save(self, config):
-        config = validate(config)
-        fd, name = tempfile.mkstemp(dir=self.path.parent, prefix='.config-')
+        self._save_json(self.path, validate(config))
+
+    def load_events(self):
+        path = self.path.with_name('activity.json')
+        if not path.exists():
+            return []
+        events = json.loads(path.read_text())
+        if not isinstance(events, list):
+            raise ValueError('Invalid activity history')
+        for event in events:
+            if not isinstance(event, dict) or set(event) != {'time', 'message', 'level'}:
+                raise ValueError('Invalid activity entry')
+            number(event['time'], 0, 1e15, 'Activity timestamp')
+            if not isinstance(event['message'], str) or event['level'] not in ('info', 'warning', 'error'):
+                raise ValueError('Invalid activity entry')
+        return events[:100]
+
+    def save_events(self, events):
+        self._save_json(self.path.with_name('activity.json'), list(events)[:100])
+
+    def _save_json(self, path, value):
+        fd, name = tempfile.mkstemp(dir=path.parent, prefix=f'.{path.stem}-')
         try:
             with os.fdopen(fd, 'w') as file:
-                json.dump(config, file, indent=2)
+                json.dump(value, file, indent=2, allow_nan=False)
                 file.flush()
                 os.fsync(file.fileno())
-            os.replace(name, self.path)
+            os.replace(name, path)
         finally:
             if os.path.exists(name):
                 os.unlink(name)
