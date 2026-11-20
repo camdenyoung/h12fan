@@ -44,20 +44,38 @@ class IPMI:
         if not self.host or not self.user or not self.password:
             raise ValueError('Set IPMI_HOST, IPMI_USER and IPMI_PASSWORD (or their _FILE variants)')
         self.port = int(os.getenv('IPMI_PORT', '623'))
+        self.interface = os.getenv('IPMI_INTERFACE', 'lanplus').strip().lower()
+        if self.interface not in ('lan', 'lanplus'):
+            raise ValueError('IPMI_INTERFACE must be lan or lanplus')
         self.cipher = int(os.getenv('IPMI_CIPHER', '17'))
 
     def run(self, *args):
         env = os.environ.copy()
         env['IPMI_PASSWORD'] = self.password
-        command = ['ipmitool', '-I', 'lanplus', '-H', self.host, '-p', str(self.port),
-                   '-U', self.user, '-E', '-C', str(self.cipher), '-N', '2', '-R', '1', *map(str, args)]
+        command = ['ipmitool', '-I', self.interface, '-H', self.host, '-p', str(self.port),
+                   '-U', self.user, '-E']
+        if self.interface == 'lanplus':
+            command.extend(['-C', str(self.cipher)])
+        command.extend(['-N', '2', '-R', '1', *map(str, args)])
+        operation = ' '.join(map(str, args))
+        connection = f'lanplus, cipher {self.cipher}' if self.interface == 'lanplus' else 'lan'
+        context = f'IPMI {operation} ({connection})'
         try:
             result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=12)
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise IPMIError('IPMI command unavailable or timed out') from exc
+        except subprocess.TimeoutExpired as exc:
+            raise IPMIError(f'{context} timed out after 12 seconds') from exc
+        except OSError as exc:
+            raise IPMIError(f'{context}: ipmitool is unavailable or could not be executed') from exc
         if result.returncode:
-            # Do not relay subprocess output: firmware and utilities may echo credentials.
-            raise IPMIError('IPMI command failed; check connectivity, credentials and BMC support')
+            # Keep the failing operation and utility's reason, without echoing credentials.
+            detail = result.stderr or result.stdout or 'ipmitool returned no error details'
+            message = f'{context} failed (exit {result.returncode}): {detail}'
+            for value in sorted({self.password, self.user}, key=len, reverse=True):
+                if value:
+                    message = message.replace(value, '[redacted]')
+            # Redact before normalising/truncating, including credentials containing newlines.
+            message = ' '.join(''.join(c if c.isprintable() else ' ' for c in message).split())
+            raise IPMIError(message[:1000])
         return result.stdout.strip()
 
     def power(self):

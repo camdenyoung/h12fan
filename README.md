@@ -32,6 +32,7 @@ H12FAN_WEB_PASSWORD=use-a-long-unique-dashboard-password
 H12FAN_LISTEN_ADDRESS=127.0.0.1
 H12FAN_WEB_PORT=8080
 IPMI_PORT=623
+IPMI_INTERFACE=lanplus
 IPMI_CIPHER=17
 ```
 
@@ -41,7 +42,7 @@ Then recreate the container:
 docker compose up -d
 ```
 
-Web UI authentication is optional in both demo and live mode. Leave `H12FAN_WEB_PASSWORD` blank or unset for no login. Set any non-empty password to enable login as **admin**; there is no minimum password length. Anyone who can reach the dashboard can view and change its settings when authentication is disabled. BMC credentials remain required for live IPMI access and are separate from the optional dashboard password. The BMC account needs permission to read sensors/chassis status and execute OEM fan commands and sensor-threshold writes. Check your BMC's account permissions; a read-only account cannot control fans. The host needs network access to the BMC's IPMI UDP port (normally 623). Cipher suite 17 is the default; `IPMI_CIPHER` can be changed for your firmware.
+Web UI authentication is optional in both demo and live mode. Leave `H12FAN_WEB_PASSWORD` blank or unset for no login. Set any non-empty password to enable login as **admin**; there is no minimum password length. Anyone who can reach the dashboard can view and change its settings when authentication is disabled. BMC credentials remain required for live IPMI access and are separate from the optional dashboard password. The BMC account needs permission to read sensors/chassis status and execute OEM fan commands and sensor-threshold writes. Check your BMC's account permissions; a read-only account cannot control fans. The host needs network access to the BMC's IPMI UDP port (normally 623). `IPMI_INTERFACE` defaults to `lanplus` (IPMI 2.0), with cipher suite 17. Set `IPMI_INTERFACE=lan` to use the older IPMI LAN interface; `IPMI_CIPHER` applies only to `lanplus`. There is no automatic protocol fallback.
 
 Environment credentials are visible to administrators of the Docker host. The application also supports `IPMI_HOST_FILE`, `IPMI_USER_FILE`, `IPMI_PASSWORD_FILE`, and `H12FAN_WEB_PASSWORD_FILE`; a `_FILE` setting takes precedence over its environment value. To use Docker secrets, add an override such as:
 
@@ -63,6 +64,30 @@ secrets:
 ```
 
 Create the two secret files yourself, restrict access, and run `docker compose -f compose.yaml -f compose.secrets.yaml up -d --build`. Secret files are excluded from Git and the Docker build context. Credentials never appear in dashboard API responses or the persisted fan configuration. IPMI passwords are passed to `ipmitool` through its environment, not command-line arguments.
+
+## Troubleshooting IPMI connections
+
+Match the connection options used by your successful host command. In ipmitool, specifying `-H` without `-I` defaults to **lan**, whereas this app defaults to **lanplus**. A working host command such as `ipmitool -H BMC -U USER -P PASSWORD sdr type Temperature` therefore tests a different protocol from the app's default.
+
+To match that command, set this in `.env` and recreate the container:
+
+```dotenv
+IPMI_INTERFACE=lan
+```
+
+```sh
+docker compose up -d --build
+```
+
+`lan` uses the older IPMI protocol without payload encryption. `lanplus` supports encryption and stronger authentication through its selected cipher suite. Keep `lanplus` when it works for your BMC. See the [ipmitool interface documentation](https://github.com/ipmitool/ipmitool/blob/master/doc/ipmitool.1.in) and [default-interface selection](https://github.com/ipmitool/ipmitool/blob/master/lib/ipmi_main.c).
+
+To test temperature reads from **inside the container** using the app's actual connection settings and credentials:
+
+```sh
+docker compose exec h12fan python -c 'from h12fan.ipmi import IPMI; print(IPMI().run("sdr", "type", "Temperature"))'
+```
+
+The app first reads `chassis power status`, then `sensor list`, and only reads/writes OEM fan control when automatic control is enabled. A successful temperature-only command does not test those other operations. Errors now show the failing operation, interface/cipher, exit status, and ipmitool's error details with the configured username/password redacted. Timeouts identify the operation and time limit. The original generic error did not establish whether connectivity, authentication, privileges, or command support caused the failure.
 
 ## Configure control
 
