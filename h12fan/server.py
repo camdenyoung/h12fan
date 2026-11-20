@@ -114,7 +114,7 @@ def main():
     if not demo and len(token) < 16:
         raise ValueError('Live mode requires H12FAN_WEB_PASSWORD with at least 16 characters')
     data_dir = Path(os.getenv('H12FAN_DATA', './data'))
-    # Never carry simulated hardware confirmation or enabled control into a live deployment.
+    # Never carry simulated enabled control into a live deployment.
     controller = Controller(DemoIPMI() if demo else IPMI(), Store(data_dir / 'demo' if demo else data_dir))
     server = ThreadingHTTPServer((os.getenv('H12FAN_BIND', '127.0.0.1'), int(os.getenv('PORT', '8080'))), handler(controller, token))
     server.daemon_threads = True

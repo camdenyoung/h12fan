@@ -8,7 +8,7 @@ from pathlib import Path
 
 def defaults():
     return {
-        'enabled': False, 'hardware_confirmed': False, 'poll_seconds': 5,
+        'enabled': False, 'poll_seconds': 5,
         'threshold_check_seconds': 60, 'startup_seconds': 20, 'hysteresis': 3,
         'zones': [
             {'id': 0, 'name': 'Zone 1 · FAN1–FAN7', 'sensors': ['CPU Temp'], 'critical': 85,
@@ -40,13 +40,14 @@ def triplet(value):
 
 
 def validate(c):
+    # Older releases stored an acknowledgement flag; accept and discard it.
+    if isinstance(c, dict):
+        c = copy.deepcopy(c)
+        c.pop('hardware_confirmed', None)
     if not isinstance(c, dict) or set(c) != set(defaults()):
         raise ValueError('Incomplete or unknown configuration fields')
-    for key in ['enabled', 'hardware_confirmed']:
-        if type(c[key]) is not bool:
-            raise ValueError(f'{key} must be true or false')
-    if c['enabled'] and not c['hardware_confirmed']:
-        raise ValueError('Confirm the hardware profile before enabling control')
+    if type(c['enabled']) is not bool:
+        raise ValueError('enabled must be true or false')
     for key, lo, hi in [('poll_seconds', 2, 60), ('threshold_check_seconds', 30, 3600),
                         ('startup_seconds', 0, 300), ('hysteresis', 0, 15)]:
         number(c[key], lo, hi, key)

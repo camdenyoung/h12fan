@@ -22,7 +22,7 @@ function renderEditors() {
   $('zones').innerHTML = draft.zones.map(z => `<article class="zone"><div class="zone-head"><div><h3>${esc(z.name)}</h3><small>IPMI zone ${z.id} · hottest selected sensor</small></div><span class="badge" id="zone-live-${z.id}">MONITORING</span></div><div class="zone-content"><div class="zone-controls"><label>Reference temperature sensors<select multiple aria-label="Zone ${z.id+1} reference sensors" data-zone="${z.id}" data-field="sensors">${names.map(n=>`<option ${z.sensors.includes(n)?'selected':''} value="${esc(n)}">${esc(n)}</option>`).join('')}</select></label><label>Critical override (°C)<input type="number" min="20" max="110" data-zone="${z.id}" data-field="critical" value="${z.critical}"></label></div><p class="help">Select one sensor, or hold Ctrl / Command to select several. Critical temperature requests 100% duty.</p><div id="graph-${z.id}"></div><div class="graph-key"><span>— Preview curve</span><span>┄ Cooling hysteresis</span><span>● Live applied state</span></div><table class="curve-table"><thead><tr><th>From temperature (°C)</th><th>Duty (%)</th><th></th></tr></thead><tbody id="points-${z.id}"></tbody></table><button data-add="${z.id}">Add temperature step</button><p class="help">The first duty also applies below the first step. Preview changes take effect after Apply.</p></div></article>`).join('');
   for (const z of draft.zones) renderPoints(z.id);
   for (const key of ['poll_seconds','threshold_check_seconds','startup_seconds','hysteresis']) $(key).value = draft[key];
-  $('enabled').checked = draft.enabled; $('hardware_confirmed').checked = draft.hardware_confirmed;
+  $('enabled').checked = draft.enabled;
   $('thresholds').innerHTML = Object.entries(draft.fans).map(([name,f],i) => `<tr><td>${esc(name)}<small id="threshold-status-${i}">Waiting</small></td><td id="threshold-actual-${i}">—</td>${f.desired.map((n,j)=>`<td><input type="number" min="0" max="50000" step="1" aria-label="${esc(name)} ${['LNR','LCR','LNC'][j]}" data-fan="${esc(name)}" data-rpm="${j}" value="${n}"></td>`).join('')}<td>${f.factory ? f.factory.map(fmt).join(' / ') : 'Not recorded'}</td><td><input type="checkbox" aria-label="Auto restore ${esc(name)}" data-fan="${esc(name)}" data-restore ${f.restore?'checked':''}></td><td><button class="threshold-action" data-threshold="apply" data-fan="${esc(name)}">Apply now</button><button class="threshold-action" data-threshold="capture" data-fan="${esc(name)}">Record defaults</button></td></tr>`).join('');
 }
 function renderPoints(id) {
@@ -105,7 +105,7 @@ document.addEventListener('input', e=>{
   } else if(d.fan) {
     if(d.rpm!==undefined) draft.fans[d.fan].desired[Number(d.rpm)]=el.value===''?NaN:Number(el.value);
     else if('restore' in d) draft.fans[d.fan].restore=el.checked;
-  } else if(['enabled','hardware_confirmed'].includes(el.id)) draft[el.id]=el.checked;
+  } else if(el.id==='enabled') draft[el.id]=el.checked;
   else if(['poll_seconds','threshold_check_seconds','startup_seconds','hysteresis'].includes(el.id)) {draft[el.id]=Number(el.value); draft.zones.forEach(z=>graph(z.id));}
   else return;
   markDirty();

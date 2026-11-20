@@ -71,13 +71,13 @@ Create the two secret files yourself, restrict access, and run `docker compose -
 3. Choose one sensor per zone, or select several to use their hottest reading. IPMI sensors only: OS-only drive temperatures are not collected in this first version.
 4. Edit temperature steps and duty percentages. The graph previews changes immediately. The first duty applies below the first step, and the final duty applies above the final step, until the critical override requests 100%.
 5. Set hysteresis and critical overrides appropriate for the hardware. Curves must have strictly increasing temperatures and non-decreasing duty. Duty values are integer percentages from 10–100; the minimum does not guarantee a particular fan will spin reliably.
-6. Verify the raw-command profile below for your BMC firmware, select the hardware confirmation checkbox, enable control, and Apply.
+6. Enable automatic fan control and Apply. No hardware acknowledgement checkbox is required.
 
 The graph distinguishes the edited curve, cooling hysteresis, and the last live applied operating point. The applied point continues to represent the saved configuration until edits are applied. Duty read-back confirms what the BMC reports; actual fan RPM is shown separately. A BMC may override requested duty for its own reasons.
 
 ### Raw-command profile
 
-The application implements this fixed Supermicro-style profile; it is **not yet physically verified on your motherboard**:
+The application implements the following Supermicro command profile, including the duty-cycle commands confirmed for this server:
 
 | Operation | IPMI command suffix |
 | --- | --- |
@@ -87,12 +87,13 @@ The application implements this fixed Supermicro-style profile; it is **not yet 
 | Enter Full/manual mode | `raw 0x30 0x45 0x01 0x01` |
 | Return to firmware Standard mode | `raw 0x30 0x45 0x01 0x00` |
 | Read zone duty | `raw 0x30 0x70 0x66 0x00 ZONE` |
-| Write zone duty | `raw 0x30 0x70 0x66 0x01 ZONE DUTY` |
+| Write Zone 0 duty | `raw 0x30 0x70 0x66 0x01 0x00 DUTY` |
+| Write Zone 1 duty | `raw 0x30 0x70 0x66 0x01 0x01 DUTY` |
 | Write lower thresholds | `sensor thresh FAN lower LNR LCR LNC` |
 
 Zone and duty are sent as hexadecimal bytes. For example, 50% is `0x32`, and 100% is `0x64`. The controller reads back mode, duty and threshold writes. It seeds both zones at 100% before lowering either on takeover, detects fan-mode resets, and checks duty read-back on every control cycle.
 
-The board manual documents dual fan zones and IPMI monitoring but does not establish this OEM raw-command contract. Supermicro cautions that raw fan commands can vary and recommends its own utilities for some systems. Verify the profile before enabling control:
+The board manual documents dual fan zones and IPMI monitoring but does not establish this OEM raw-command contract. Supermicro cautions that raw fan commands can vary and recommends its own utilities for some systems. Reference documentation:
 
 - [H12SSL motherboard manual](https://www.supermicro.com/manuals/motherboard/EPYC7000/MNL-2314.pdf)
 - [Supermicro FAQ on raw fan commands](https://www.supermicro.com/en/support/faqs/faq.php?faq=39476)
@@ -132,7 +133,7 @@ Disabling control and graceful container shutdown return owned fan control to fi
 
 ## Persistence and operations
 
-The named Docker volume `h12fan-data` stores `/data/config.json`, including curves, desired thresholds and explicitly recorded factory baselines. Demo configuration is isolated in `/data/demo/config.json`; enabling curves or confirming hardware in demo mode never enables live control. Preserve or back up this volume. The dashboard's last 100 activity events are held in memory and reset on restart. Credentials are configured at container startup; restart/recreate the container to change them.
+The named Docker volume `h12fan-data` stores `/data/config.json`, including curves, desired thresholds and explicitly recorded factory baselines. Demo configuration is isolated in `/data/demo/config.json`; enabling curves in demo mode never enables live control. Preserve or back up this volume. The dashboard's last 100 activity events are held in memory and reset on restart. Credentials are configured at container startup; restart/recreate the container to change them.
 
 ```sh
 docker compose logs -f

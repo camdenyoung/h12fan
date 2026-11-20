@@ -46,7 +46,7 @@ class Tests(unittest.TestCase):
         self.controller.config['startup_seconds'] = 0
 
     def enable(self):
-        self.controller.config.update(enabled=True, hardware_confirmed=True)
+        self.controller.config.update(enabled=True)
 
     def test_step_boundaries_hysteresis_and_critical(self):
         z = defaults()['zones'][0]
@@ -184,8 +184,21 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.controller.state['thresholds']['FAN7']['status'],'unavailable')
         write.assert_not_called()
 
+    def test_legacy_acknowledgement_flag_is_ignored_on_load(self):
+        import json
+        for acknowledged in (False, True):
+            legacy = defaults()
+            legacy.update(enabled=True, hardware_confirmed=acknowledged)
+            self.controller.store.path.write_text(json.dumps(legacy))
+            migrated = self.controller.store.load()
+            self.assertTrue(migrated['enabled'])
+            self.assertNotIn('hardware_confirmed', migrated)
+            self.assertIn('hardware_confirmed', legacy)
+            self.controller.store.save(migrated)
+            self.assertNotIn('hardware_confirmed', json.loads(self.controller.store.path.read_text()))
+
     def test_invalid_config(self):
-        mutations = [lambda c:c.update(enabled=True),
+        mutations = [lambda c:c.update(enabled='yes'),
                      lambda c:c.update(poll_seconds=float('nan')),
                      lambda c:c['zones'][0]['points'].append({'temp':40,'duty':20}),
                      lambda c:c['fans']['FAN1'].update(restore=True),
