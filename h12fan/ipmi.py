@@ -47,7 +47,7 @@ class IPMI:
         self.interface = os.getenv('IPMI_INTERFACE', 'lanplus').strip().lower()
         if self.interface not in ('lan', 'lanplus'):
             raise ValueError('IPMI_INTERFACE must be lan or lanplus')
-        self.cipher = int(os.getenv('IPMI_CIPHER', '17'))
+        self.cipher = int(os.getenv('IPMI_CIPHER', '3'))
 
     def run(self, *args):
         env = os.environ.copy()

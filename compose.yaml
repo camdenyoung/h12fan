@@ -13,7 +13,7 @@ services:
       IPMI_PASSWORD: "${IPMI_PASSWORD:-}"
       IPMI_PORT: "${IPMI_PORT:-623}"
       IPMI_INTERFACE: "${IPMI_INTERFACE:-lanplus}"
-      IPMI_CIPHER: "${IPMI_CIPHER:-17}"
+      IPMI_CIPHER: "${IPMI_CIPHER:-3}"
       H12FAN_WEB_PASSWORD: "${H12FAN_WEB_PASSWORD:-}"
     volumes:
       - h12fan-data:/data

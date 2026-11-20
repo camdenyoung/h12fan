@@ -33,7 +33,7 @@ H12FAN_LISTEN_ADDRESS=127.0.0.1
 H12FAN_WEB_PORT=8080
 IPMI_PORT=623
 IPMI_INTERFACE=lanplus
-IPMI_CIPHER=17
+IPMI_CIPHER=3
 ```
 
 Then recreate the container:
@@ -42,7 +42,7 @@ Then recreate the container:
 docker compose up -d
 ```
 
-Web UI authentication is optional in both demo and live mode. Leave `H12FAN_WEB_PASSWORD` blank or unset for no login. Set any non-empty password to enable login as **admin**; there is no minimum password length. Anyone who can reach the dashboard can view and change its settings when authentication is disabled. BMC credentials remain required for live IPMI access and are separate from the optional dashboard password. The BMC account needs permission to read sensors/chassis status and execute OEM fan commands and sensor-threshold writes. Check your BMC's account permissions; a read-only account cannot control fans. The host needs network access to the BMC's IPMI UDP port (normally 623). `IPMI_INTERFACE` defaults to `lanplus` (IPMI 2.0), with cipher suite 17. Set `IPMI_INTERFACE=lan` to use the older IPMI LAN interface; `IPMI_CIPHER` applies only to `lanplus`. There is no automatic protocol fallback.
+Web UI authentication is optional in both demo and live mode. Leave `H12FAN_WEB_PASSWORD` blank or unset for no login. Set any non-empty password to enable login as **admin**; there is no minimum password length. Anyone who can reach the dashboard can view and change its settings when authentication is disabled. BMC credentials remain required for live IPMI access and are separate from the optional dashboard password. The BMC account needs permission to read sensors/chassis status and execute OEM fan commands and sensor-threshold writes. Check your BMC's account permissions; a read-only account cannot control fans. The host needs network access to the BMC's IPMI UDP port (normally 623). `IPMI_INTERFACE` defaults to `lanplus` (IPMI 2.0), with cipher suite 3, matching the confirmed working H12 connection. Set `IPMI_INTERFACE=lan` to use the older IPMI LAN interface; `IPMI_CIPHER` applies only to `lanplus`. There is no automatic protocol fallback.
 
 Environment credentials are visible to administrators of the Docker host. The application also supports `IPMI_HOST_FILE`, `IPMI_USER_FILE`, `IPMI_PASSWORD_FILE`, and `H12FAN_WEB_PASSWORD_FILE`; a `_FILE` setting takes precedence over its environment value. To use Docker secrets, add an override such as:
 
@@ -66,6 +66,15 @@ secrets:
 Create the two secret files yourself, restrict access, and run `docker compose -f compose.yaml -f compose.secrets.yaml up -d --build`. Secret files are excluded from Git and the Docker build context. Credentials never appear in dashboard API responses or the persisted fan configuration. IPMI passwords are passed to `ipmitool` through its environment, not command-line arguments.
 
 ## Troubleshooting IPMI connections
+
+The confirmed working connection for this H12 uses `lanplus` with cipher suite 3:
+
+```dotenv
+IPMI_INTERFACE=lanplus
+IPMI_CIPHER=3
+```
+
+These are now the app defaults. If you already have `.env` settings from an earlier version, explicitly change `IPMI_CIPHER=17` to `IPMI_CIPHER=3` and any `IPMI_INTERFACE=lan` to `IPMI_INTERFACE=lanplus`. Existing environment values override new defaults. Apply the changes with `docker compose up -d --build`.
 
 Match the connection options used by your successful host command. In ipmitool, specifying `-H` without `-I` defaults to **lan**, whereas this app defaults to **lanplus**. A working host command such as `ipmitool -H BMC -U USER -P PASSWORD sdr type Temperature` therefore tests a different protocol from the app's default.
 
