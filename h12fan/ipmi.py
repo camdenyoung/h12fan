@@ -156,7 +156,7 @@ class DemoIPMI:
         self.power_state = 'on'
         self.fan_mode = 0
         self.duties = {0: 100, 1: 100}
-        self.lowers = {n: [700, 1000, 1200] for n in ['FAN1', 'FAN2', 'FAN3', 'FAN4', 'FAN5', 'FAN6', 'FAN7', 'FANA', 'FANB']}
+        self.lowers = {n: [700, 1000, 1200] for n in ['FAN1', 'FAN2', 'FAN3', 'FAN4', 'FAN5', 'FANA', 'FANB']}
 
     def power(self):
         return self.power_state

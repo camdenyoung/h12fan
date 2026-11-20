@@ -101,13 +101,13 @@ The app first reads `chassis power status`, then `sensor list`, and only reads/w
 ## Configure control
 
 1. Leave automatic fan control disabled while verifying live telemetry.
-2. Choose reference temperature sensors for **Zone 1 (FAN1–FAN7, raw ID 0)** and **Zone 2 (FANA/FANB, raw ID 1)**. Sensor names come from the BMC; only headers actually present on your board appear in telemetry. The zone labels follow the requested grouping; verify the physical wiring and firmware mapping on your server.
+2. Choose reference temperature sensors for **Zone 1 (FAN1–FAN5, raw ID 0)** and **Zone 2 (FANA/FANB, raw ID 1)**. Sensor names come from the BMC; only headers actually present on your board appear in telemetry. The zone labels follow the requested grouping; verify the physical wiring and firmware mapping on your server.
 3. Choose one sensor per zone, or select several to use their hottest reading. IPMI sensors only: OS-only drive temperatures are not collected in this first version.
 4. Edit temperature steps and duty percentages. The graph previews changes immediately. The first duty applies below the first step, and the final duty applies above the final step, until the critical override requests 100%.
 5. Set hysteresis and critical overrides appropriate for the hardware. Curves must have strictly increasing temperatures and non-decreasing duty. Duty values are integer percentages from 10–100; the minimum does not guarantee a particular fan will spin reliably.
 6. Enable automatic fan control and Apply. No hardware acknowledgement checkbox is required.
 
-The graph distinguishes the edited curve, cooling hysteresis, and the last live applied operating point. The applied point continues to represent the saved configuration until edits are applied. Duty read-back confirms what the BMC reports; actual fan RPM is shown separately. A BMC may override requested duty for its own reasons.
+The graph distinguishes the edited curve, cooling hysteresis, and the last live applied operating point. The live point uses the saved configuration's controlling temperature and the BMC-reported duty until edits are applied. Each zone card shows **BMC duty**, polled directly from the BMC whenever the server is powered on, including during startup settling and with automatic control disabled. During control, the requested target is shown separately. Duty read-back confirms what the BMC reports; actual fan RPM is shown separately. Powered-off, disconnected, or failed duty reads show no current percentage rather than retaining an old value. A BMC may override requested duty for its own reasons.
 
 ### Raw-command profile
 
@@ -169,7 +169,7 @@ Disabling control and graceful container shutdown return owned fan control to fi
 
 ## Persistence and operations
 
-The named Docker volume `h12fan-data` stores `/data/config.json`, including curves, desired thresholds and explicitly recorded factory baselines. Demo configuration is isolated in `/data/demo/config.json`; enabling curves in demo mode never enables live control. Preserve or back up this volume. The dashboard's last 100 activity events are held in memory and reset on restart. Credentials are configured at container startup; restart/recreate the container to change them.
+The named Docker volume `h12fan-data` stores `/data/config.json`, including curves, desired thresholds and explicitly recorded factory baselines. Demo configuration is isolated in `/data/demo/config.json`; enabling curves in demo mode never enables live control. Existing configurations automatically discard obsolete FAN6/FAN7 entries and update the original default zone label while preserving curves and remaining fan thresholds. Preserve or back up this volume. The dashboard's last 100 activity events are held in memory and reset on restart. Credentials are configured at container startup; restart/recreate the container to change them.
 
 ```sh
 docker compose logs -f

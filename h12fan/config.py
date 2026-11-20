@@ -11,7 +11,7 @@ def defaults():
         'enabled': False, 'poll_seconds': 5,
         'threshold_check_seconds': 60, 'startup_seconds': 20, 'hysteresis': 3,
         'zones': [
-            {'id': 0, 'name': 'Zone 1 · FAN1–FAN7', 'sensors': ['CPU Temp'], 'critical': 85,
+            {'id': 0, 'name': 'Zone 1 · FAN1–FAN5', 'sensors': ['CPU Temp'], 'critical': 85,
              'points': [{'temp': 0, 'duty': 35}, {'temp': 40, 'duty': 45},
                         {'temp': 55, 'duty': 65}, {'temp': 70, 'duty': 100}]},
             {'id': 1, 'name': 'Zone 2 · FANA / FANB', 'sensors': ['System Temp'], 'critical': 70,
@@ -19,7 +19,7 @@ def defaults():
                         {'temp': 45, 'duty': 65}, {'temp': 60, 'duty': 100}]},
         ],
         'fans': {name: {'desired': [400, 800, 1000], 'factory': None, 'restore': False}
-                 for name in ['FAN1', 'FAN2', 'FAN3', 'FAN4', 'FAN5', 'FAN6', 'FAN7', 'FANA', 'FANB']},
+                 for name in ['FAN1', 'FAN2', 'FAN3', 'FAN4', 'FAN5', 'FANA', 'FANB']},
     }
 
 
@@ -47,6 +47,13 @@ def validate(c):
     if isinstance(c, dict):
         c = copy.deepcopy(c)
         c.pop('hardware_confirmed', None)
+        if isinstance(c.get('fans'), dict):
+            for name in ('FAN6', 'FAN7'):
+                c['fans'].pop(name, None)
+        if isinstance(c.get('zones'), list):
+            for zone in c['zones']:
+                if isinstance(zone, dict) and zone.get('name') == 'Zone 1 · FAN1–FAN7':
+                    zone['name'] = 'Zone 1 · FAN1–FAN5'
     if not isinstance(c, dict) or set(c) != set(defaults()):
         raise ValueError('Incomplete or unknown configuration fields')
     if type(c['enabled']) is not bool:

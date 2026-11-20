@@ -48,7 +48,7 @@ class Controller:
         self.previous = {}
         self.state = {'connected': False, 'power': 'unknown', 'phase': 'connecting',
                       'sensors': [], 'zones': [], 'last_success': None, 'error': None,
-                      'thresholds': {}, 'demo': ipmi.demo, 'host': ipmi.host}
+                      'thresholds': {}, 'bmc_duties': [], 'demo': ipmi.demo, 'host': ipmi.host}
 
     def event(self, message, level='info'):
         if not self.events or self.events[0]['message'] != message:
@@ -163,6 +163,21 @@ class Controller:
             except Exception:
                 self.event('Unable to restore firmware control; last duty may remain active', 'error')
 
+    def read_bmc_duties(self):
+        readings = []
+        for zone in (0, 1):
+            try:
+                duty = self.ipmi.duty(zone)
+                if not isinstance(duty, int) or isinstance(duty, bool) or not 0 <= duty <= 100:
+                    raise IPMIError(f'Zone {zone}: BMC reported an invalid duty value')
+                readings.append({'id': zone, 'duty': duty, 'updated_at': time.time(), 'error': None})
+            except Exception as exc:
+                # A duty telemetry failure must not hide otherwise usable sensor data.
+                readings.append({'id': zone, 'duty': None, 'updated_at': None, 'error': str(exc)})
+        self.state['bmc_duties'] = readings
+        for target in self.state['zones']:
+            target['readback'] = readings[target['id']]['duty']
+
     def tick(self):
         with self.lock:
             power_read = False
@@ -219,7 +234,6 @@ class Controller:
                     actual = self.ipmi.duty(zone)
                     if actual != duty:
                         self.ipmi.set_duty(zone, duty)
-                    target['readback'] = duty
                     self.previous[zone] = duty
                 self.state.update(phase='controlling', zones=targets)
             except Exception as exc:
@@ -231,6 +245,11 @@ class Controller:
                 self.last_threshold = None
                 self.event(str(exc), 'error')
                 self.fail_safe()
+            finally:
+                if power_read and self.state['power'] == 'on':
+                    self.read_bmc_duties()
+                else:
+                    self.state['bmc_duties'] = []
 
     def run(self):
         while not self.stop.is_set():

@@ -177,14 +177,14 @@ class Tests(unittest.TestCase):
 
     def test_empty_header_does_not_block_zone_or_restore_thresholds(self):
         self.enable()
-        self.controller.config['fans']['FAN7'].update(factory=[700,1000,1200],restore=True)
+        self.controller.config['fans']['FAN5'].update(factory=[700,1000,1200],restore=True)
         rows = self.ipmi.sensors()
-        row = next(s for s in rows if s['name']=='FAN7')
+        row = next(s for s in rows if s['name']=='FAN5')
         row.update(value=None,status='ns')
         with patch.object(self.ipmi,'sensors',return_value=rows), patch.object(self.ipmi,'thresholds') as write:
             self.controller.tick()
         self.assertEqual(self.controller.state['phase'],'controlling')
-        self.assertEqual(self.controller.state['thresholds']['FAN7']['status'],'unavailable')
+        self.assertEqual(self.controller.state['thresholds']['FAN5']['status'],'unavailable')
         write.assert_not_called()
 
     def test_legacy_acknowledgement_flag_is_ignored_on_load(self):
@@ -239,6 +239,79 @@ class Tests(unittest.TestCase):
                 self.controller.tick()
                 write.assert_called_once_with('FAN1',[400,800,1000])
             self.assertEqual(Store(self.tmp.name).load()['fans']['FAN1']['factory'],[840,1120,None])
+
+    def test_obsolete_headers_migrated_without_losing_other_settings(self):
+        import json
+        config=defaults()
+        config['fans']['FAN6']={'desired':[400,800,1000],'factory':None,'restore':False}
+        config['fans']['FAN7']=copy.deepcopy(config['fans']['FAN6'])
+        config['zones'][0]['name']='Zone 1 · FAN1–FAN7'
+        config['zones'][0]['points'][0]['duty']=40
+        config['fans']['FAN1']['desired']=[300,600,900]
+        self.controller.store.path.write_text(json.dumps(config))
+        migrated=self.controller.store.load()
+        self.assertEqual(set(migrated['fans']), {'FAN1','FAN2','FAN3','FAN4','FAN5','FANA','FANB'})
+        self.assertEqual(migrated['zones'][0]['name'],'Zone 1 · FAN1–FAN5')
+        self.assertEqual(migrated['zones'][0]['points'][0]['duty'],40)
+        self.assertEqual(migrated['fans']['FAN1']['desired'],[300,600,900])
+        config['zones'][0]['name']='My CPU fans'
+        self.assertEqual(validate(config)['zones'][0]['name'],'My CPU fans')
+
+    def test_monitoring_reads_bmc_duties_without_writing(self):
+        self.ipmi.duties={0:57,1:38}
+        self.controller.tick()
+        self.assertEqual(self.controller.state['phase'],'monitoring')
+        self.assertEqual([r['duty'] for r in self.controller.state['bmc_duties']],[57,38])
+        self.assertEqual(self.controller.state['zones'],[])
+        self.assertEqual(self.ipmi.writes,[])
+
+    def test_starting_reads_bmc_duties_without_enabling_control(self):
+        self.enable()
+        self.controller.config['startup_seconds']=20
+        self.ipmi.duties={0:65,1:45}
+        self.controller.tick()
+        self.assertEqual(self.controller.state['phase'],'starting')
+        self.assertEqual([r['duty'] for r in self.controller.state['bmc_duties']],[65,45])
+        self.assertEqual(self.ipmi.writes,[])
+
+    def test_off_and_unreachable_clear_previous_duty_readings(self):
+        self.controller.tick()
+        self.assertEqual(len(self.controller.state['bmc_duties']),2)
+        self.ipmi.power_state='off'
+        with patch.object(self.ipmi,'duty') as read:
+            self.controller.tick()
+            read.assert_not_called()
+        self.assertEqual(self.controller.state['bmc_duties'],[])
+        self.ipmi.power_state='on'
+        self.controller.tick()
+        self.ipmi.online=False
+        self.controller.tick()
+        self.assertEqual(self.controller.state['bmc_duties'],[])
+
+    def test_one_duty_read_failure_does_not_hide_sensors_or_other_zone(self):
+        def duty(zone):
+            if zone==0:
+                raise IPMIError('Zone duty read failed')
+            return 37
+        with patch.object(self.ipmi,'duty',side_effect=duty):
+            self.controller.tick()
+        self.assertEqual(self.controller.state['phase'],'monitoring')
+        self.assertTrue(self.controller.state['sensors'])
+        first, second=self.controller.state['bmc_duties']
+        self.assertIsNone(first['duty'])
+        self.assertIn('read failed',first['error'])
+        self.assertEqual(second['duty'],37)
+
+    def test_control_telemetry_uses_new_readback_instead_of_assigned_target(self):
+        self.enable()
+        self.controller.tick()
+        self.assertEqual([r['readback'] for r in self.controller.state['zones']],
+                         [self.ipmi.duties[0],self.ipmi.duties[1]])
+        # A later BMC override can differ from the requested duty.
+        self.ipmi.duties={0:83,1:76}
+        self.controller.read_bmc_duties()
+        self.assertEqual([r['readback'] for r in self.controller.state['zones']],[83,76])
+        self.assertNotEqual(self.controller.state['zones'][0]['requested'],83)
 
     def test_invalid_config(self):
         mutations = [lambda c:c.update(enabled='yes'),
