@@ -110,7 +110,7 @@ Automatic restoration is independent of temperature-based fan control and is off
 1. Establish the actual factory thresholds for your firmware and fans. **Record defaults** explicitly records the current BMC values as the known factory triplet for that fan. Do this only when those readings are known factory values. Do not record your existing custom values as factory defaults. This first version does not ship with an assumed H12 factory threshold table.
 2. Enable Auto restore for that fan and Apply configuration.
 3. At startup, after power-on/BMC reconnection, and periodically, the service checks the thresholds. It writes only when the current triplet matches the recorded factory values and differs from the desired triplet.
-4. Unknown differences are displayed, preserving possible manual changes. Missing fans and unavailable thresholds are skipped. Failed writes are logged and retried at the next check.
+4. Unknown differences are displayed, preserving possible manual changes. Missing fans and unavailable thresholds are skipped. Empty fan headers do not block zone temperature control. A numeric zero RPM is flagged in telemetry; it cannot by itself distinguish an unused header from a stalled fan. Leave automatic threshold restoration off for unused headers. Failed writes are logged and retried at the next check.
 
 Some sensors quantise RPM thresholds. A mismatching read-back is reported as a failure; use values representable by the sensor. Threshold checks wait until the server is on and the startup settling period has elapsed. If settings survive a reboot, no write is needed. Recording defaults is available per fan so different fans can have different baselines.
 
