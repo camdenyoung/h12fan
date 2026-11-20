@@ -17,7 +17,7 @@ Open **http://localhost:8080** on that machine. The initial deployment uses **de
 
 To avoid a port conflict with another container, set `H12FAN_WEB_PORT` in `.env` (for example, `H12FAN_WEB_PORT=8088`) and run `docker compose up -d` to recreate the container with the new mapping. Then open **http://localhost:8088**. The default host port is 8080; the container's internal port remains 8080.
 
-To view it from another machine, set `H12FAN_LISTEN_ADDRESS` in `.env` to the Docker host's trusted LAN address. Protect access with `H12FAN_WEB_PASSWORD`. Use a TLS reverse proxy or an SSH tunnel when accessing the dashboard beyond a trusted network; HTTP Basic authentication alone does not encrypt traffic.
+To view it from another machine, set `H12FAN_LISTEN_ADDRESS` in `.env` to the Docker host's trusted LAN address. Optionally protect access with `H12FAN_WEB_PASSWORD`. Use a TLS reverse proxy or an SSH tunnel when accessing the dashboard beyond a trusted network; HTTP Basic authentication alone does not encrypt traffic.
 
 ## Connect your motherboard
 
@@ -41,7 +41,7 @@ Then recreate the container:
 docker compose up -d
 ```
 
-Dashboard login is **admin** with the configured `H12FAN_WEB_PASSWORD`. Live mode requires a dashboard password of at least 16 characters. BMC credentials and dashboard credentials are separate. The BMC account needs permission to read sensors/chassis status and execute OEM fan commands and sensor-threshold writes. Check your BMC's account permissions; a read-only account cannot control fans. The host needs network access to the BMC's IPMI UDP port (normally 623). Cipher suite 17 is the default; `IPMI_CIPHER` can be changed for your firmware.
+Web UI authentication is optional in both demo and live mode. Leave `H12FAN_WEB_PASSWORD` blank or unset for no login. Set any non-empty password to enable login as **admin**; there is no minimum password length. Anyone who can reach the dashboard can view and change its settings when authentication is disabled. BMC credentials remain required for live IPMI access and are separate from the optional dashboard password. The BMC account needs permission to read sensors/chassis status and execute OEM fan commands and sensor-threshold writes. Check your BMC's account permissions; a read-only account cannot control fans. The host needs network access to the BMC's IPMI UDP port (normally 623). Cipher suite 17 is the default; `IPMI_CIPHER` can be changed for your firmware.
 
 Environment credentials are visible to administrators of the Docker host. The application also supports `IPMI_HOST_FILE`, `IPMI_USER_FILE`, `IPMI_PASSWORD_FILE`, and `H12FAN_WEB_PASSWORD_FILE`; a `_FILE` setting takes precedence over its environment value. To use Docker secrets, add an override such as:
 

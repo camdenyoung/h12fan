@@ -111,8 +111,6 @@ def handler(controller, token):
 def main():
     demo = os.getenv('H12FAN_DEMO', 'true').lower() == 'true'
     token = secret('H12FAN_WEB_PASSWORD')
-    if not demo and len(token) < 16:
-        raise ValueError('Live mode requires H12FAN_WEB_PASSWORD with at least 16 characters')
     data_dir = Path(os.getenv('H12FAN_DATA', './data'))
     # Never carry simulated enabled control into a live deployment.
     controller = Controller(DemoIPMI() if demo else IPMI(), Store(data_dir / 'demo' if demo else data_dir))
