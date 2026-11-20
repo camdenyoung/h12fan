@@ -15,6 +15,8 @@ docker compose up -d --build
 
 Open **http://localhost:8080** on that machine. The initial deployment uses **demo mode**, with simulated sensor readings and controls to test power transitions and a BMC settings reset. No IPMI traffic is sent in demo mode.
 
+To avoid a port conflict with another container, set `H12FAN_WEB_PORT` in `.env` (for example, `H12FAN_WEB_PORT=8088`) and run `docker compose up -d` to recreate the container with the new mapping. Then open **http://localhost:8088**. The default host port is 8080; the container's internal port remains 8080.
+
 To view it from another machine, set `H12FAN_LISTEN_ADDRESS` in `.env` to the Docker host's trusted LAN address. Protect access with `H12FAN_WEB_PASSWORD`. Use a TLS reverse proxy or an SSH tunnel when accessing the dashboard beyond a trusted network; HTTP Basic authentication alone does not encrypt traffic.
 
 ## Connect your motherboard
@@ -28,6 +30,7 @@ IPMI_USER=fancontroller
 IPMI_PASSWORD=your-bmc-password
 H12FAN_WEB_PASSWORD=use-a-long-unique-dashboard-password
 H12FAN_LISTEN_ADDRESS=127.0.0.1
+H12FAN_WEB_PORT=8080
 IPMI_PORT=623
 IPMI_CIPHER=17
 ```
