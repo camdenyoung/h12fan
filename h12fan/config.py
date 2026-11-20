@@ -30,12 +30,15 @@ def number(value, low, high, label, integer=False):
         raise ValueError(f'{label} must be {low}–{high}' + (' (integer)' if integer else ''))
 
 
-def triplet(value):
+def triplet(value, partial=False):
     if not isinstance(value, list) or len(value) != 3:
         raise ValueError('Thresholds require three RPM values: LNR, LCR, LNC')
-    for n in value:
-        number(n, 0, 50000, 'RPM', True)
-    if not value[0] < value[1] < value[2]:
+    present = [n for n in value if n is not None] if partial else value
+    if not present:
+        raise ValueError('At least one readable threshold is required')
+    for n in present:
+        number(n, 0, 50000, 'RPM', not partial)
+    if any(a >= b for a, b in zip(present, present[1:])):
         raise ValueError('Thresholds must increase: LNR < LCR < LNC')
 
 
@@ -83,7 +86,7 @@ def validate(c):
             raise ValueError('Invalid fan threshold settings')
         triplet(fan['desired'])
         if fan['factory'] is not None:
-            triplet(fan['factory'])
+            triplet(fan['factory'], partial=True)
         if fan['restore'] and fan['factory'] is None:
             raise ValueError(f'{name}: record known factory thresholds before enabling restoration')
     return copy.deepcopy(c)

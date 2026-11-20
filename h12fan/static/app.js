@@ -83,8 +83,21 @@ function telemetry() {
   }
   Object.keys(draft.fans).forEach((name,i)=>{
     const row=state.thresholds[name];
-    $(`threshold-status-${i}`).textContent=row?.status || 'Not checked';
-    $(`threshold-actual-${i}`).textContent=row?.actual?.map(fmt).join(' / ') || '—';
+    const skipped = row?.actual && row.status !== 'unavailable' ? ['LNR','LCR','LNC'].filter((_,j)=>row.actual[j]===null) : [];
+    $(`threshold-status-${i}`).textContent=row ? row.status + (row.reason ? ` · ${row.reason}` : '') + (skipped.length ? ` · ${skipped.join(', ')} not reported; skipped` : '') : 'Not checked';
+    const cell=$(`threshold-actual-${i}`);
+    cell.textContent=row?.actual?.map(fmt).join(' / ') || '—';
+    if(row?.expected) {
+      const target=document.createElement('small');
+      target.textContent='Effective target: '+row.expected.map(fmt).join(' / ');
+      cell.append(target);
+    }
+    document.querySelectorAll('input[data-rpm]').forEach(input=>{
+      if(input.dataset.fan!==name) return;
+      const unsupported=!!(row?.actual && row.status!=='unavailable' && row.actual[Number(input.dataset.rpm)]===null);
+      input.disabled=unsupported;
+      input.title=unsupported?'Not reported by this fan sensor; this threshold is skipped':'';
+    });
   });
   $('events').innerHTML=state.events.map(e=>`<div class="event ${e.level==='error'?'error':''}"><time>${esc(new Date(e.time*1000).toLocaleString())}</time>${esc(e.message)}</div>`).join('') || '<p>No events yet.</p>';
   if(state.error) message(state.error,true); else if(!$('error').dataset.local) $('error').hidden=true;

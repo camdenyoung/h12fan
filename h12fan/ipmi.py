@@ -2,7 +2,9 @@ import math
 import os
 import subprocess
 import time
+import tempfile
 from pathlib import Path
+from .sdr import fan_scales, masked_lower
 
 
 class IPMIError(RuntimeError):
@@ -48,6 +50,8 @@ class IPMI:
         if self.interface not in ('lan', 'lanplus'):
             raise ValueError('IPMI_INTERFACE must be lan or lanplus')
         self.cipher = int(os.getenv('IPMI_CIPHER', '3'))
+        self._fan_scales = {}
+        self._scale_checked = None
 
     def run(self, *args):
         env = os.environ.copy()
@@ -108,11 +112,40 @@ class IPMI:
         if self.duty(zone) != duty:
             raise IPMIError(f'Zone {zone}: duty read-back did not match')
 
+    def expected_lower(self, name, values, actual):
+        expected = masked_lower(values, actual)
+        if expected == actual:
+            return expected
+        if self._scale_checked is None or time.monotonic() - self._scale_checked > 300:
+            try:
+                with tempfile.TemporaryDirectory(prefix='h12fan-sdr-') as directory:
+                    path = Path(directory) / 'sensors.sdr'
+                    self.run('sdr', 'dump', str(path))
+                    self._fan_scales = fan_scales(path.read_bytes())
+            except (IPMIError, OSError, ValueError):
+                # Monitoring still works; uncertain rounding must not pass verification.
+                self._fan_scales = {}
+            self._scale_checked = time.monotonic()
+        return masked_lower(values, actual, self._fan_scales.get(name))
+
     def thresholds(self, name, values):
-        self.run('sensor', 'thresh', name, 'lower', *values)
         row = next((s for s in self.sensors() if s['name'] == name), None)
-        if row is None or row['lower'] != values:
-            raise IPMIError(f'{name}: threshold read-back did not match (possible sensor quantisation)')
+        if row is None or row['value'] is None or all(v is None for v in row['lower']):
+            raise IPMIError(f'{name}: no active fan or readable lower thresholds')
+        expected = self.expected_lower(name, values, row['lower'])
+        # Never write the unsupported/unreported slots. Order writes to avoid crossing
+        # existing thresholds while changing an increasing lower-threshold sequence.
+        slots = ['lnr', 'lcr', 'lnc']
+        indices = [i for i in range(3) if row['lower'][i] is not None]
+        decreasing = [i for i in indices if expected[i] < row['lower'][i]]
+        increasing = [i for i in reversed(indices) if expected[i] > row['lower'][i]]
+        for i in decreasing + increasing:
+            self.run('sensor', 'thresh', name, slots[i], values[i])
+        after = next((s for s in self.sensors() if s['name'] == name), None)
+        if after is None or after['lower'] != expected:
+            actual = after['lower'] if after else None
+            raise IPMIError(f'{name}: threshold read-back mismatch; expected {expected}, received {actual}')
+        return after['lower']
 
 
 class DemoIPMI:
@@ -151,7 +184,11 @@ class DemoIPMI:
     def set_duty(self, zone, duty):
         self.duties[zone] = duty
 
+    def expected_lower(self, name, values, actual):
+        return masked_lower(values, actual)
+
     def thresholds(self, name, values):
         if name not in self.lowers:
             raise IPMIError('Fan not found')
-        self.lowers[name] = list(values)
+        self.lowers[name] = self.expected_lower(name, values, self.lowers[name])
+        return list(self.lowers[name])

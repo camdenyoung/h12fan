@@ -1,5 +1,9 @@
 import os
 import unittest
+import time
+from pathlib import Path
+from h12fan.sdr import FanScale
+from test_sdr import fan_record
 from unittest.mock import patch
 from subprocess import CompletedProcess, TimeoutExpired
 from h12fan.ipmi import IPMI, IPMIError, parse_sensors
@@ -79,3 +83,43 @@ class Tests(unittest.TestCase):
     def test_unsupported_interface_rejected(self):
         with self.assertRaisesRegex(ValueError,'IPMI_INTERFACE'):
             IPMI()
+
+
+    @patch.dict(os.environ,{'IPMI_HOST':'192.0.2.1','IPMI_USER':'user','IPMI_PASSWORD':'secret-value'})
+    def test_h12_metadata_loaded_once_and_expected_values_rounded(self):
+        ipmi=IPMI()
+        def dump(*args):
+            self.assertEqual(args[:2],('sdr','dump'))
+            Path(args[2]).write_bytes(fan_record())
+            return ''
+        with patch.object(ipmi,'run',side_effect=dump) as run:
+            for _ in range(2):
+                self.assertEqual(ipmi.expected_lower('FAN1',[400,800,1000],[420,840,None]),[420,840,None])
+            run.assert_called_once()
+
+    @patch.dict(os.environ,{'IPMI_HOST':'192.0.2.1','IPMI_USER':'user','IPMI_PASSWORD':'secret-value'})
+    def test_partial_threshold_writes_skip_lnc_and_verify_rounded_readback(self):
+        ipmi=IPMI()
+        ipmi._fan_scales={'FAN1':FanScale(140,0,0,0)}
+        ipmi._scale_checked=time.monotonic()
+        before={'name':'FAN1','value':1680,'lower':[560,1120,None]}
+        after={'name':'FAN1','value':1680,'lower':[420,840,None]}
+        with patch.object(ipmi,'sensors',side_effect=[[before],[after]]), patch.object(ipmi,'run') as run:
+            self.assertEqual(ipmi.thresholds('FAN1',[400,800,1000]),[420,840,None])
+        self.assertEqual([c.args for c in run.call_args_list],[('sensor','thresh','FAN1','lnr',400),('sensor','thresh','FAN1','lcr',800)])
+
+    @patch.dict(os.environ,{'IPMI_HOST':'192.0.2.1','IPMI_USER':'user','IPMI_PASSWORD':'secret-value'})
+    def test_rounded_targets_do_not_hide_a_failed_write(self):
+        ipmi=IPMI()
+        ipmi._fan_scales={'FAN1':FanScale(140,0,0,0)}
+        ipmi._scale_checked=time.monotonic()
+        before={'name':'FAN1','value':1680,'lower':[560,1120,None]}
+        with patch.object(ipmi,'sensors',return_value=[before]), patch.object(ipmi,'run'):
+            with self.assertRaisesRegex(IPMIError,'read-back mismatch'):
+                ipmi.thresholds('FAN1',[400,800,1000])
+
+    @patch.dict(os.environ,{'IPMI_HOST':'192.0.2.1','IPMI_USER':'user','IPMI_PASSWORD':'secret-value'})
+    def test_missing_scale_does_not_guess_quantisation(self):
+        ipmi=IPMI()
+        with patch.object(ipmi,'run',side_effect=IPMIError('dump unsupported')):
+            self.assertEqual(ipmi.expected_lower('FAN1',[400,800,1000],[420,840,None]),[400,800,None])

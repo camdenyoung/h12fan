@@ -1,9 +1,12 @@
 import copy
 import tempfile
+from pathlib import Path
+from h12fan.ipmi import parse_sensors
+from h12fan.sdr import FanScale, masked_lower
 import unittest
 from unittest.mock import patch
 from h12fan.config import Store, defaults, validate
-from h12fan.controller import Controller, curve_duty
+from h12fan.controller import Controller, curve_duty, fan_unavailable_reason
 from h12fan.ipmi import DemoIPMI, IPMIError
 
 
@@ -33,7 +36,7 @@ class RecordingIPMI(DemoIPMI):
     def thresholds(self, name, values):
         if self.reject:
             raise IPMIError('write rejected')
-        super().thresholds(name, values)
+        return super().thresholds(name, values)
 
 
 class Tests(unittest.TestCase):
@@ -196,6 +199,46 @@ class Tests(unittest.TestCase):
             self.assertIn('hardware_confirmed', legacy)
             self.controller.store.save(migrated)
             self.assertNotIn('hardware_confirmed', json.loads(self.controller.store.path.read_text()))
+
+    def test_unavailable_fan_reasons_distinguish_missing_sensor_reading_and_thresholds(self):
+        self.assertEqual(fan_unavailable_reason(None), 'No matching RPM sensor found')
+        row = {'value': None, 'unit': 'RPM', 'lower': [400, 800, 1000]}
+        self.assertEqual(fan_unavailable_reason(row), 'Fan sensor has no RPM reading')
+        row.update(value=1200, lower=[None, None, None])
+        self.assertEqual(fan_unavailable_reason(row), 'BMC did not report any lower thresholds')
+        row['lower'] = [420, 840, None]
+        self.assertIsNone(fan_unavailable_reason(row))
+        row.update(value=0, lower=[400, 800, 1000])
+        self.assertIsNone(fan_unavailable_reason(row))
+
+    def test_real_h12_rows_partial_thresholds_and_inactive_headers(self):
+        rows=parse_sensors((Path(__file__).parent/'fixtures/h12-fans.txt').read_text())
+        with patch.object(self.ipmi,'expected_lower',side_effect=lambda n,v,a: masked_lower(v,a,FanScale(140,0,0,0))):
+            self.controller.check_thresholds(rows)
+        statuses=self.controller.state['thresholds']
+        for name in ['FAN1','FAN2','FANA','FANB']:
+            self.assertEqual(statuses[name]['status'],'matched (BMC rounded)')
+            self.assertEqual(statuses[name]['expected'],[420,840,None])
+        for name in ['FAN3','FAN4','FAN5']:
+            self.assertEqual(statuses[name]['status'],'unavailable')
+            self.assertEqual(statuses[name]['reason'],'Fan sensor has no RPM reading')
+
+    def test_partial_factory_capture_persists_and_restores_once(self):
+        self.ipmi.lowers['FAN1']=[840,1120,None]
+        with patch.object(self.ipmi,'expected_lower',side_effect=lambda n,v,a: masked_lower(v,a,FanScale(140,0,0,0))):
+            self.controller.tick()
+            self.controller.apply_threshold('FAN1',capture=True)
+            config=self.controller.snapshot()['config']
+            self.assertEqual(config['fans']['FAN1']['factory'],[840,1120,None])
+            config['fans']['FAN1']['restore']=True
+            self.controller.update(config)
+            with patch.object(self.ipmi,'thresholds',wraps=self.ipmi.thresholds) as write:
+                self.controller.tick()
+                self.assertEqual(self.ipmi.lowers['FAN1'],[420,840,None])
+                self.now+=61
+                self.controller.tick()
+                write.assert_called_once_with('FAN1',[400,800,1000])
+            self.assertEqual(Store(self.tmp.name).load()['fans']['FAN1']['factory'],[840,1120,None])
 
     def test_invalid_config(self):
         mutations = [lambda c:c.update(enabled='yes'),

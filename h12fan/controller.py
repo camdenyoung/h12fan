@@ -6,6 +6,18 @@ from .config import validate
 from .ipmi import IPMIError
 
 
+def fan_unavailable_reason(row):
+    if row is None:
+        return 'No matching RPM sensor found'
+    if row['value'] is None:
+        return 'Fan sensor has no RPM reading'
+    if row['unit'].lower() != 'rpm':
+        return 'Sensor does not report RPM units'
+    if all(v is None for v in row['lower']):
+        return 'BMC did not report any lower thresholds'
+    return None
+
+
 def curve_duty(zone, temperature, previous, hysteresis):
     if temperature >= zone['critical']:
         return 100
@@ -79,9 +91,10 @@ class Controller:
             if self.ipmi.power() != 'on':
                 raise ValueError('Server is powered off')
             rows = self.ipmi.sensors()
-            row = next((s for s in rows if s['name'] == name and s['unit'].lower() == 'rpm'), None)
-            if not row or row['value'] is None or any(v is None for v in row['lower']):
-                raise ValueError('Fan sensor or its thresholds are unavailable')
+            row = next((s for s in rows if s['name'] == name), None)
+            reason = fan_unavailable_reason(row)
+            if reason:
+                raise ValueError(f'{name}: {reason}')
             fan = self.config['fans'][name]
             if capture:
                 updated = copy.deepcopy(self.config)
@@ -94,22 +107,28 @@ class Controller:
                     for zone in (0, 1):
                         self.ipmi.set_duty(zone, 100)
                     self.previous.clear()
-                self.ipmi.thresholds(name, fan['desired'])
-                self.event(f'{name}: lower thresholds applied and verified')
+                actual = self.ipmi.thresholds(name, fan['desired'])
+                self.event(f'{name}: lower thresholds applied and verified: {actual} (unreported slots skipped)')
             self.last_threshold = None
 
     def check_thresholds(self, rows):
         status = {}
         protected = False
-        by_name = {r['name']: r for r in rows if r['unit'].lower() == 'rpm'}
+        by_name = {r['name']: r for r in rows}
         for name, fan in self.config['fans'].items():
             row = by_name.get(name)
             actual = row['lower'] if row else None
-            if row is None or row['value'] is None or any(v is None for v in actual):
-                status[name] = {'status': 'unavailable', 'actual': actual}
+            reason = fan_unavailable_reason(row)
+            if reason:
+                status[name] = {'status': 'unavailable', 'actual': actual, 'reason': reason}
                 continue
-            if actual == fan['desired']:
-                label = 'matched'
+            try:
+                expected = self.ipmi.expected_lower(name, fan['desired'], actual)
+            except ValueError as exc:
+                status[name] = {'status': 'invalid target', 'actual': actual, 'reason': str(exc)}
+                continue
+            if actual == expected:
+                label = 'matched (BMC rounded)' if any(v is not None and v != fan['desired'][i] for i, v in enumerate(expected)) else 'matched'
             elif fan['factory'] is not None and actual == fan['factory']:
                 label = 'factory defaults'
                 if fan['restore']:
@@ -120,8 +139,7 @@ class Controller:
                                 self.ipmi.set_duty(zone, 100)
                             self.previous.clear()
                             protected = True
-                        self.ipmi.thresholds(name, fan['desired'])
-                        actual = list(fan['desired'])
+                        actual = self.ipmi.thresholds(name, fan['desired'])
                         label = 'restored'
                         self.event(f'{name}: factory defaults detected; saved thresholds restored and verified')
                     except IPMIError as exc:
@@ -129,7 +147,7 @@ class Controller:
                         self.event(str(exc), 'error')
             else:
                 label = 'different / unrecognised'
-            status[name] = {'status': label, 'actual': actual}
+            status[name] = {'status': label, 'actual': actual, 'expected': expected}
         self.state['thresholds'] = status
 
     def fail_safe(self):

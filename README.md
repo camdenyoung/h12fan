@@ -123,7 +123,7 @@ The application implements the following Supermicro command profile, including t
 | Read zone duty | `raw 0x30 0x70 0x66 0x00 ZONE` |
 | Write Zone 0 duty | `raw 0x30 0x70 0x66 0x01 0x00 DUTY` |
 | Write Zone 1 duty | `raw 0x30 0x70 0x66 0x01 0x01 DUTY` |
-| Write lower thresholds | `sensor thresh FAN lower LNR LCR LNC` |
+| Write a reported lower threshold | `sensor thresh FAN lnr VALUE` (or `lcr` / `lnc`) |
 
 Zone and duty are sent as hexadecimal bytes. For example, 50% is `0x32`, and 100% is `0x64`. The controller reads back mode, duty and threshold writes. It seeds both zones at 100% before lowering either on takeover, detects fan-mode resets, and checks duty read-back on every control cycle.
 
@@ -141,7 +141,7 @@ Every configured fan starts with desired values **400 / 800 / 1000 RPM**, equiva
 ipmitool sensor thresh FAN1 lower 400 800 1000
 ```
 
-The order is **lower non-recoverable (LNR), lower critical (LCR), lower non-critical (LNC)**. Change values individually, or copy FAN1's desired values to all configured fans. Save configuration before using **Apply now**, which writes the saved values and verifies the result.
+The order is **lower non-recoverable (LNR), lower critical (LCR), lower non-critical (LNC)**. Change values individually, or copy FAN1's desired values to all configured fans. Save configuration before using **Apply now**, which writes the saved values to the reported threshold slots and verifies the effective result. A fan with LNR/LCR values and an unreported LNC remains available; the LNC input is disabled and that slot is skipped. Fans without an RPM reading remain unavailable.
 
 Automatic restoration is independent of temperature-based fan control and is off initially:
 
@@ -150,7 +150,9 @@ Automatic restoration is independent of temperature-based fan control and is off
 3. At startup, after power-on/BMC reconnection, and periodically, the service checks the thresholds. It writes only when the current triplet matches the recorded factory values and differs from the desired triplet.
 4. Unknown differences are displayed, preserving possible manual changes. Missing fans and unavailable thresholds are skipped. Empty fan headers do not block zone temperature control. A numeric zero RPM is flagged in telemetry; it cannot by itself distinguish an unused header from a stalled fan. Leave automatic threshold restoration off for unused headers. Failed writes are logged and retried at the next check.
 
-Some sensors quantise RPM thresholds. A mismatching read-back is reported as a failure; use values representable by the sensor. Threshold checks wait until the server is on and the startup settling period has elapsed. If settings survive a reboot, no write is needed. Recording defaults is available per fan so different fans can have different baselines.
+Some sensors quantise RPM thresholds. The service reads linear fan conversion factors from an `ipmitool sdr dump` in temporary storage, caching them for five minutes, and computes the representable target before comparison or writing. For example, a sensor with 140 RPM steps represents requested 400 / 800 RPM as 420 / 840 RPM. The dashboard shows the actual triplet and effective target; `—` means a slot is unreported and skipped. No guessed percentage tolerance is used. If conversion metadata is missing or unsupported, comparison remains strict. A read-back that differs from the effective target remains a failure. Targets that collapse to equal thresholds after rounding or exceed the raw sensor range are rejected.
+
+Known factory baselines can contain unreported slots (stored as `null`). Capturing a partial baseline and automatically restoring its reported thresholds is supported. Matching already-rounded targets does not cause repeated writes. Threshold checks wait until the server is on and the startup settling period has elapsed. If settings survive a reboot, no write is needed. Recording defaults is available per fan so different fans can have different baselines.
 
 ## Power state and failures
 

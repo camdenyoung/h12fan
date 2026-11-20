@@ -1,0 +1,7 @@
+FAN1             | 1680.000   | RPM        | ok    | 420.000   | 840.000   | na        | na        | 2520.000  | 2940.000
+FAN2             | 1680.000   | RPM        | ok    | 420.000   | 840.000   | na        | na        | 2520.000  | 2940.000
+FAN3             | na         |            | na    | na        | na        | na        | na        | na        | na
+FAN4             | na         |            | na    | na        | na        | na        | na        | na        | na
+FAN5             | na         |            | na    | na        | na        | na        | na        | na        | na
+FANA             | 1120.000   | RPM        | ok    | 420.000   | 840.000   | na        | na        | 35560.000 | 35700.000
+FANB             | 1120.000   | RPM        | ok    | 420.000   | 840.000   | na        | na        | 35560.000 | 35700.000
