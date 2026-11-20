@@ -50,9 +50,24 @@ class Controller:
                       'sensors': [], 'zones': [], 'last_success': None, 'error': None,
                       'thresholds': {}, 'bmc_duties': [], 'demo': ipmi.demo, 'host': ipmi.host}
 
-    def event(self, message, level='info'):
-        if not self.events or self.events[0]['message'] != message:
+    def event(self, message, level='info', *, deduplicate=True):
+        if not deduplicate or not self.events or self.events[0]['message'] != message:
             self.events.appendleft({'time': time.time(), 'message': message, 'level': level})
+
+    def change_duty(self, zone, duty, reason, *, actual=None, force=False):
+        if actual is None:
+            try:
+                actual = self.ipmi.duty(zone)
+            except Exception:
+                if not force:
+                    raise
+                # Safety writes must still be attempted when the old duty cannot be read.
+        if actual == duty and not force:
+            return
+        self.ipmi.set_duty(zone, duty)  # The adapter verifies the BMC read-back.
+        if actual != duty:
+            old = 'unknown' if actual is None else f'{actual}%'
+            self.event(f'Zone {zone} duty updated: {old} → {duty}% — {reason}', deduplicate=False)
 
     def snapshot(self):
         with self.lock:
@@ -105,7 +120,7 @@ class Controller:
             else:
                 if self.owned:
                     for zone in (0, 1):
-                        self.ipmi.set_duty(zone, 100)
+                        self.change_duty(zone, 100, 'preparing fan threshold update', force=True)
                     self.previous.clear()
                 actual = self.ipmi.thresholds(name, fan['desired'])
                 self.event(f'{name}: lower thresholds applied and verified: {actual} (unreported slots skipped)')
@@ -136,7 +151,7 @@ class Controller:
                         if self.owned and not protected:
                             # Threshold read-back can take time: keep cooling conservative.
                             for zone in (0, 1):
-                                self.ipmi.set_duty(zone, 100)
+                                self.change_duty(zone, 100, 'preparing automatic threshold restoration', force=True)
                             self.previous.clear()
                             protected = True
                         actual = self.ipmi.thresholds(name, fan['desired'])
@@ -155,7 +170,7 @@ class Controller:
             # Attempt both zones even if one command fails, then return to firmware.
             for zone in (0, 1):
                 try:
-                    self.ipmi.set_duty(zone, 100)
+                    self.change_duty(zone, 100, 'fault recovery', force=True)
                 except Exception:
                     pass
             try:
@@ -220,7 +235,9 @@ class Controller:
                     if any(v is None for v in values):
                         raise IPMIError(f"Zone {z['id']}: required temperature sensor unavailable")
                     temp = max(values)
+                    sensor = max(z['sensors'], key=lambda name: temperatures[name])
                     targets.append({'id': z['id'], 'temperature': temp,
+                                    'sensor': sensor,
                                     'requested': curve_duty(z, temp, self.previous.get(z['id']), self.config['hysteresis']),
                                     'critical': temp >= z['critical']})
                 # Read mode each poll to detect BMC resets. Seed both zones at 100% on takeover.
@@ -228,12 +245,14 @@ class Controller:
                     self.owned = True  # Also recover if mode setting succeeds but verification fails.
                     self.ipmi.set_mode(1)
                     for zone in (0, 1):
-                        self.ipmi.set_duty(zone, 100)
+                        self.change_duty(zone, 100, 'taking over manual fan control', force=True)
                 for target in targets:
                     zone, duty = target['id'], target['requested']
                     actual = self.ipmi.duty(zone)
                     if actual != duty:
-                        self.ipmi.set_duty(zone, duty)
+                        reason = 'critical temperature override' if target['critical'] else 'temperature curve'
+                        self.change_duty(zone, duty,
+                                         f"{target['sensor']} {target['temperature']:g}°C; {reason}", actual=actual)
                     self.previous[zone] = duty
                 self.state.update(phase='controlling', zones=targets)
             except Exception as exc:

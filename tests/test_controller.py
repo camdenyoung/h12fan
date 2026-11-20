@@ -313,6 +313,57 @@ class Tests(unittest.TestCase):
         self.assertEqual([r['readback'] for r in self.controller.state['zones']],[83,76])
         self.assertNotEqual(self.controller.state['zones'][0]['requested'],83)
 
+    def test_sensor_driven_change_logs_once_with_reference_sensor_and_temperature(self):
+        self.enable()
+        rows=self.ipmi.sensors()
+        cpu=next(r for r in rows if r['name']=='CPU Temp')
+        system=next(r for r in rows if r['name']=='System Temp')
+        cpu['value']=38
+        system['value']=30
+        with patch.object(self.ipmi,'sensors',return_value=rows):
+            self.controller.tick()
+            self.controller.events.clear()
+            cpu['value']=60
+            self.controller.tick()
+            entries=[e['message'] for e in self.controller.events if 'duty updated:' in e['message']]
+            self.assertEqual(entries,['Zone 0 duty updated: 35% → 65% — CPU Temp 60°C; temperature curve'])
+            self.controller.tick()
+            self.assertEqual([e['message'] for e in self.controller.events if 'duty updated:' in e['message']],entries)
+
+    def test_failed_duty_write_does_not_log_success(self):
+        self.ipmi.duties[0]=40
+        with patch.object(self.ipmi,'set_duty',side_effect=IPMIError('write failed')):
+            with self.assertRaises(IPMIError):
+                self.controller.change_duty(0,65,'temperature curve')
+        self.assertFalse(any('duty updated:' in e['message'] for e in self.controller.events))
+
+    def test_forced_unchanged_safety_writes_do_not_log_changes(self):
+        self.ipmi.duties[0]=100
+        self.controller.change_duty(0,100,'fault recovery',force=True)
+        self.assertEqual(self.ipmi.writes,[(0,100)])
+        self.assertFalse(self.controller.events)
+
+    def test_each_repeated_successful_correction_is_logged(self):
+        for _ in range(2):
+            self.ipmi.duties[0]=40
+            self.controller.change_duty(0,65,'temperature curve')
+        self.assertEqual(len(self.controller.events),2)
+        self.assertEqual(self.controller.events[0]['message'],self.controller.events[1]['message'])
+
+    def test_successful_safety_change_records_reason_and_unknown_old_duty(self):
+        with patch.object(self.ipmi,'duty',side_effect=IPMIError('read failed')):
+            self.controller.change_duty(0,100,'fault recovery',force=True)
+        self.assertEqual(self.controller.events[0]['message'],
+                         'Zone 0 duty updated: unknown → 100% — fault recovery')
+
+    def test_passive_bmc_changes_are_not_logged_as_app_updates(self):
+        self.controller.tick()
+        self.controller.events.clear()
+        self.ipmi.duties[0]=77
+        self.controller.tick()
+        self.assertEqual(self.controller.state['bmc_duties'][0]['duty'],77)
+        self.assertFalse(any('duty updated:' in e['message'] for e in self.controller.events))
+
     def test_invalid_config(self):
         mutations = [lambda c:c.update(enabled='yes'),
                      lambda c:c.update(poll_seconds=float('nan')),
